@@ -3,7 +3,7 @@ import * as THREE from "/vendor/three.module.js";
 const canvas = document.getElementById("scene");
 const boomText = document.getElementById("boom-text");
 const hint = document.getElementById("hint");
-const boomAudio = new Audio("/sound/boom.mp3");
+const boomAudio = new Audio("/sfx/boom.mp3");
 boomAudio.preload = "auto";
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -28,6 +28,8 @@ const dragPlane = new THREE.Plane();
 const dragOffset = new THREE.Vector3();
 const intersection = new THREE.Vector3();
 const tempVector = new THREE.Vector3();
+const tempVector2 = new THREE.Vector3();
+const upVector = new THREE.Vector3(0, 1, 0);
 let isDragging = false;
 
 const ambient = new THREE.AmbientLight(0xffffff, 0.55);
@@ -102,15 +104,44 @@ const sparkMaterial = new THREE.MeshStandardMaterial({
   emissiveIntensity: 1.6,
   roughness: 0.4
 });
-const spark = new THREE.Mesh(
+const sparkGroup = new THREE.Group();
+const sparkCore = new THREE.Mesh(
   new THREE.SphereGeometry(0.12, 24, 24),
   sparkMaterial
 );
-bombGroup.add(spark);
+const sparkCone = new THREE.Mesh(
+  new THREE.ConeGeometry(0.12, 0.22, 16, 1, true),
+  sparkMaterial
+);
+sparkCone.position.y = 0.23;
+sparkGroup.add(sparkCore);
+sparkGroup.add(sparkCone);
+bombGroup.add(sparkGroup);
 
 const sparkGlow = new THREE.PointLight(0xff6b1a, 1.2, 5);
-sparkGlow.position.copy(spark.position);
+sparkGlow.position.copy(sparkGroup.position);
 scene.add(sparkGlow);
+
+const flameGroup = new THREE.Group();
+scene.add(flameGroup);
+const flameMaterial = new THREE.MeshStandardMaterial({
+  color: 0xff8a2a,
+  emissive: 0xff4d00,
+  emissiveIntensity: 2.6,
+  transparent: true,
+  opacity: 0.9,
+  roughness: 0.6
+});
+const flameParticles = [];
+const flameGeometry = new THREE.ConeGeometry(0.08, 0.24, 12, 1, true);
+for (let i = 0; i < 48; i += 1) {
+  const mesh = new THREE.Mesh(flameGeometry, flameMaterial.clone());
+  mesh.visible = false;
+  mesh.userData.velocity = new THREE.Vector3();
+  mesh.userData.life = 0;
+  flameParticles.push(mesh);
+  flameGroup.add(mesh);
+}
 
 const explosionGroup = new THREE.Group();
 explosionGroup.visible = false;
@@ -128,20 +159,37 @@ const shockwave = new THREE.Mesh(
 );
 explosionGroup.add(shockwave);
 
-const particleMaterial = new THREE.MeshStandardMaterial({
-  color: 0xff5f1f,
-  emissive: 0xff2d00,
-  emissiveIntensity: 1.1,
-  roughness: 0.4
+const debrisMaterial = new THREE.MeshStandardMaterial({
+  color: 0x1b1b1b,
+  roughness: 0.9,
+  metalness: 0.1
 });
-const particles = [];
-for (let i = 0; i < 40; i += 1) {
+const debrisPieces = [];
+for (let i = 0; i < 24; i += 1) {
   const mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(0.08, 20, 20),
-    particleMaterial
+    new THREE.BoxGeometry(0.12, 0.08, 0.05),
+    debrisMaterial
   );
   mesh.userData.velocity = new THREE.Vector3();
-  particles.push(mesh);
+  mesh.userData.spin = new THREE.Vector3();
+  debrisPieces.push(mesh);
+  explosionGroup.add(mesh);
+}
+
+const smokeMaterial = new THREE.MeshStandardMaterial({
+  color: 0x444444,
+  transparent: true,
+  opacity: 0.7,
+  roughness: 2
+});
+const smokePuffs = [];
+for (let i = 0; i < 18; i += 1) {
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(0.22, 16, 16),
+    smokeMaterial.clone()
+  );
+  mesh.userData.velocity = new THREE.Vector3();
+  smokePuffs.push(mesh);
   explosionGroup.add(mesh);
 }
 
@@ -152,8 +200,10 @@ let lastTimestamp = null;
 
 function placeSpark(progress) {
   const point = fuseCurve.getPointAt(1 - progress);
-  spark.position.copy(point);
-  sparkGlow.position.copy(spark.getWorldPosition(tempVector));
+  sparkGroup.position.copy(point);
+  tempVector2.copy(fuseCurve.getTangentAt(1 - progress)).normalize();
+  sparkGroup.quaternion.setFromUnitVectors(upVector, tempVector2);
+  sparkGlow.position.copy(sparkGroup.getWorldPosition(tempVector));
 }
 
 function updateFuse(progress) {
@@ -161,6 +211,51 @@ function updateFuse(progress) {
   const drawCount = Math.max(0, Math.floor(fuseIndexCount * remaining));
   fuseGeometry.setDrawRange(0, drawCount);
   fuseMesh.visible = drawCount > 0;
+}
+
+function spawnFlameParticles(progress) {
+  const baseRate = 14;
+  const spawnCount = Math.max(3, Math.floor(baseRate + progress * 7));
+  for (let i = 0; i < spawnCount; i += 1) {
+    const particle = flameParticles.find((item) => item.userData.life <= 0);
+    if (!particle) {
+      return;
+    }
+    particle.visible = true;
+    particle.userData.life = 0.45 + Math.random() * 0.35;
+    particle.scale.set(
+      0.7 + Math.random() * 0.4,
+      1.4 + Math.random() * 0.9,
+      0.7 + Math.random() * 0.4
+    );
+    particle.material.opacity = 1;
+    particle.position.copy(sparkGroup.getWorldPosition(tempVector));
+    particle.userData.velocity.set(
+      (Math.random() - 0.5) * 0.4,
+      0.7 + Math.random() * 0.55,
+      (Math.random() - 0.5) * 0.4
+    );
+    particle.rotation.set(0, Math.random() * Math.PI * 2, 0);
+  }
+}
+
+function updateFlameParticles(delta) {
+  flameParticles.forEach((particle) => {
+    if (particle.userData.life <= 0) {
+      particle.visible = false;
+      return;
+    }
+    particle.userData.life -= delta;
+    particle.position.addScaledVector(particle.userData.velocity, delta);
+    particle.userData.velocity.multiplyScalar(0.88);
+    particle.material.opacity = Math.max(0, particle.material.opacity - delta * 2);
+    particle.scale.multiplyScalar(0.985);
+    if (particle.userData.velocity.lengthSq() > 0.0001) {
+      tempVector.copy(particle.userData.velocity).normalize().multiplyScalar(0.2);
+      tempVector2.copy(particle.position).add(tempVector);
+      particle.lookAt(tempVector2);
+    }
+  });
 }
 
 function triggerExplosion() {
@@ -172,14 +267,36 @@ function triggerExplosion() {
   boomAudio.play().catch(() => {});
   shockwave.scale.setScalar(0.1);
   shockwave.material.opacity = 0.9;
-  particles.forEach((particle) => {
-    const dir = new THREE.Vector3(
-      (Math.random() - 0.5) * 1.8,
-      (Math.random() - 0.2) * 2.7,
-      (Math.random() - 0.5) * 1.8
+  flameParticles.forEach((particle) => {
+    particle.userData.life = 0;
+    particle.visible = false;
+  });
+  debrisPieces.forEach((piece) => {
+    piece.position.set(0, 0.7, 0);
+    piece.userData.velocity.set(
+      (Math.random() - 0.5) * 3,
+      1.2 + Math.random() * 2.2,
+      (Math.random() - 0.5) * 3
     );
-    particle.position.set(0, 0.8, 0);
-    particle.userData.velocity.copy(dir);
+    piece.userData.spin.set(
+      (Math.random() - 0.5) * 6,
+      (Math.random() - 0.5) * 6,
+      (Math.random() - 0.5) * 6
+    );
+  });
+  smokePuffs.forEach((puff, index) => {
+    puff.position.set(
+      (Math.random() - 0.5) * 0.8,
+      0.6 + Math.random() * 0.4,
+      (Math.random() - 0.5) * 0.8
+    );
+    puff.scale.setScalar(0.9 + index * 0.05);
+    puff.material.opacity = 0.7;
+    puff.userData.velocity.set(
+      (Math.random() - 0.5) * 0.4,
+      0.4 + Math.random() * 0.6,
+      (Math.random() - 0.5) * 0.4
+    );
   });
   boomText.classList.remove("hidden");
   requestAnimationFrame(() => boomText.classList.add("show"));
@@ -196,6 +313,13 @@ function resetAnimation() {
   explosionGroup.position.set(0, 0, 0);
   bombGroup.visible = true;
   explosionGroup.visible = false;
+  flameParticles.forEach((particle) => {
+    particle.userData.life = 0;
+    particle.visible = false;
+  });
+  smokePuffs.forEach((puff) => {
+    puff.material.opacity = 0;
+  });
   boomText.classList.remove("show");
   boomText.classList.add("hidden");
   hint.textContent = "Bomb fuse is burning...";
@@ -207,9 +331,17 @@ function updateExplosion(delta) {
   const growth = 1 + delta * 4;
   shockwave.scale.multiplyScalar(growth);
   shockwave.material.opacity = Math.max(0, shockwave.material.opacity - delta * 1.2);
-  particles.forEach((particle) => {
-    particle.position.addScaledVector(particle.userData.velocity, delta);
-    particle.userData.velocity.multiplyScalar(0.96);
+  debrisPieces.forEach((piece) => {
+    piece.position.addScaledVector(piece.userData.velocity, delta);
+    piece.userData.velocity.y -= 2.6 * delta;
+    piece.rotation.x += piece.userData.spin.x * delta;
+    piece.rotation.y += piece.userData.spin.y * delta;
+    piece.rotation.z += piece.userData.spin.z * delta;
+  });
+  smokePuffs.forEach((puff) => {
+    puff.position.addScaledVector(puff.userData.velocity, delta);
+    puff.scale.multiplyScalar(1 + delta * 0.7);
+    puff.material.opacity = Math.max(0, puff.material.opacity - delta * 0.35);
   });
 }
 
@@ -220,6 +352,7 @@ function animate(timestamp) {
   if (!startTime) {
     startTime = timestamp;
   }
+  const delta = Math.min(0.05, (timestamp - lastTimestamp) / 1000);
   const elapsed = (timestamp - startTime) / 1000;
   const progress = Math.min(elapsed / fuseDuration, 1);
 
@@ -229,12 +362,13 @@ function animate(timestamp) {
   if (!exploded) {
     placeSpark(progress);
     updateFuse(progress);
-    sparkMaterial.emissiveIntensity = 1.2 + Math.sin(elapsed * 12) * 0.4;
+    spawnFlameParticles(progress);
+    updateFlameParticles(delta);
+    sparkMaterial.emissiveIntensity = 1.6 + Math.sin(elapsed * 12) * 0.5;
     if (progress >= 1) {
       triggerExplosion();
     }
   } else {
-    const delta = Math.min(0.05, (timestamp - lastTimestamp) / 1000);
     updateExplosion(delta);
   }
 
