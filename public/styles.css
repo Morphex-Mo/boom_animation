@@ -1,0 +1,67 @@
+:root {
+  --bg1: #ffffff;
+  --accent: #ffb347;
+  --danger: #ff4d4d;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  background: var(--bg1);
+  color: #1b1e2b;
+  overflow: hidden;
+  height: 100vh;
+}
+
+#scene {
+  width: 100vw;
+  height: 100vh;
+  display: block;
+}
+
+#overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+#hint {
+  position: absolute;
+  left: 24px;
+  bottom: 20px;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  opacity: 0.7;
+}
+
+#boom-text {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: clamp(48px, 12vw, 160px);
+  font-weight: 900;
+  letter-spacing: 0.15em;
+  color: #ffd25a;
+  text-shadow:
+    0 0 12px #ff7a00,
+    0 0 32px #ff4d00,
+    0 0 72px rgba(255, 77, 0, 0.85);
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+#boom-text.show {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.hidden {
+  display: none;
+}
